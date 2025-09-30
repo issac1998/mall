@@ -1,0 +1,54 @@
+# Development Environment Configuration
+
+server:
+  mode: "debug"
+  port: 8080
+
+database:
+  host: "localhost"
+  port: 3306
+  username: "root"
+  password: "123456"
+  dbname: "seckill_dev"
+  log_level: "info"
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+
+etcd:
+  endpoints:
+    - "localhost:2379"
+
+log:
+  level: "debug"
+  format: "console"
+  output: "stdout"
+
+metrics:
+  enabled: true
+  port: 9090
+
+tracing:
+  enabled: true
+  jaeger:
+    endpoint: "http://localhost:14268/api/traces"
+    service_name: "seckill-api-dev"
+
+rate_limit:
+  enabled: false  # Disable for development
+
+circuit_break:
+  enabled: false  # Disable for development
+
+security:
+  jwt:
+    secret: "dev-secret-key-not-for-production"
+    expiration: 24h
+  cors:
+    allowed_origins:
+      - "http://localhost:3000"
+      - "http://localhost:8080"
+      - "http://127.0.0.1:3000"
+      - "http://127.0.0.1:8080"
