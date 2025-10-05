@@ -95,7 +95,7 @@ func TestRecovery(t *testing.T) {
 	var response utils.Response
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	assert.Equal(t, int(utils.CodeInternalError), response.Code)
+	assert.Equal(t, 1004, response.Code) // CodeInternalError = 1004
 
 	// 测试正常请求
 	req = httptest.NewRequest("GET", "/normal", nil)

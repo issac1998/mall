@@ -24,7 +24,7 @@ func DefaultTimeoutConfig() TimeoutConfig {
 	return TimeoutConfig{
 		Timeout: 30 * time.Second,
 		ErrorHandler: func(c *gin.Context) {
-			utils.Error(c, utils.CodeInternalError, "Request timeout")
+			utils.ErrorResponse(c, http.StatusRequestTimeout, "Request timeout")
 		},
 		SkipFunc: nil,
 	}
@@ -99,7 +99,7 @@ func SeckillTimeout(timeout time.Duration) gin.HandlerFunc {
 	config := DefaultTimeoutConfig()
 	config.Timeout = timeout
 	config.ErrorHandler = func(c *gin.Context) {
-		utils.Error(c, utils.CodeInternalError, "Seckill request timeout, please retry")
+		utils.ErrorResponse(c, http.StatusRequestTimeout, "Seckill request timeout, please retry")
 	}
 	return TimeoutWithConfig(config)
 }
@@ -109,7 +109,7 @@ func APITimeout(timeout time.Duration) gin.HandlerFunc {
 	config := DefaultTimeoutConfig()
 	config.Timeout = timeout
 	config.ErrorHandler = func(c *gin.Context) {
-		utils.Error(c, utils.CodeInternalError, "API request timeout")
+		utils.ErrorResponse(c, http.StatusRequestTimeout, "API request timeout")
 	}
 	return TimeoutWithConfig(config)
 }

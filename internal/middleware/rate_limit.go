@@ -2,12 +2,12 @@ package middleware
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 	"seckill/pkg/log"
-	"seckill/pkg/utils"
 )
 
 // MiddlewareRateLimitConfig rate limiting middleware configuration
@@ -33,7 +33,11 @@ func DefaultMiddlewareRateLimitConfig() MiddlewareRateLimitConfig {
 			return c.ClientIP()
 		},
 		ErrorHandler: func(c *gin.Context) {
-			utils.Error(c, utils.CodeTooManyRequest, "Too many requests")
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"code":    429,
+				"message": "Too many requests",
+			})
+			c.Abort()
 		},
 		SkipFunc: func(c *gin.Context) bool {
 			return false
@@ -141,7 +145,10 @@ func SeckillRateLimit() gin.HandlerFunc {
 		c.Header("X-RateLimit-Limit", strconv.FormatFloat(config.Rate, 'f', 0, 64))
 		c.Header("X-RateLimit-Remaining", "0")
 		c.Header("Retry-After", "1")
-		utils.Error(c, utils.CodeTooManyRequest, "Seckill rate limit exceeded, please try again later")
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"code":    429,
+			"message": "Seckill rate limit exceeded, please try again later",
+		})
 	}
 	return RateLimitWithConfig(config)
 }

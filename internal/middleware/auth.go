@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -59,14 +60,14 @@ func AuthWithConfig(config AuthConfig) gin.HandlerFunc {
 		// 获取Authorization头部
 		authHeader := c.GetHeader(AuthorizationHeader)
 		if authHeader == "" {
-			utils.Error(c, utils.CodeUnauthorized, "Missing authorization header")
+			utils.ErrorResponse(c, http.StatusUnauthorized, "Missing authorization header")
 			c.Abort()
 			return
 		}
 
 		// 检查Bearer前缀
 		if !strings.HasPrefix(authHeader, BearerPrefix) {
-			utils.Error(c, utils.CodeUnauthorized, "Invalid authorization header format")
+			utils.ErrorResponse(c, http.StatusUnauthorized, "Invalid authorization header format")
 			c.Abort()
 			return
 		}
@@ -74,7 +75,7 @@ func AuthWithConfig(config AuthConfig) gin.HandlerFunc {
 		// 提取token
 		token := strings.TrimPrefix(authHeader, BearerPrefix)
 		if token == "" {
-			utils.Error(c, utils.CodeUnauthorized, "Missing token")
+			utils.ErrorResponse(c, http.StatusUnauthorized, "Missing token")
 			c.Abort()
 			return
 		}
@@ -82,14 +83,14 @@ func AuthWithConfig(config AuthConfig) gin.HandlerFunc {
 		// 验证token
 		userInfo, err := config.TokenValidator(token)
 		if err != nil {
-			utils.Error(c, utils.CodeUnauthorized, "Invalid token")
+			utils.ErrorResponse(c, http.StatusUnauthorized, "Invalid token")
 			c.Abort()
 			return
 		}
 
 		// 检查角色权限
 		if config.RequiredRole != "" && userInfo.Role != config.RequiredRole {
-			utils.Error(c, utils.CodeForbidden, "Insufficient permissions")
+			utils.ErrorResponse(c, http.StatusForbidden, "Insufficient permissions")
 			c.Abort()
 			return
 		}

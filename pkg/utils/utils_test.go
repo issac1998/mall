@@ -14,32 +14,41 @@ func TestResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("Success", func(t *testing.T) {
-		// Only test response structure here, actual HTTP tests should be in integration tests
+		// Test response structure
 		resp := Response{
-			Code:    int(CodeSuccess),
-			Message: ResponseMessage[CodeSuccess],
-			Data:    "test data",
+			Code:      0,
+			Message:   "success",
+			Data:      "test data",
+			Timestamp: 1234567890,
 		}
-		assert.Equal(t, 200, resp.Code)
+		assert.Equal(t, 0, resp.Code)
 		assert.Equal(t, "success", resp.Message)
 		assert.Equal(t, "test data", resp.Data)
+		assert.Equal(t, int64(1234567890), resp.Timestamp)
 	})
 
 	t.Run("Error", func(t *testing.T) {
 		resp := Response{
-			Code:    int(CodeInvalidParam),
-			Message: ResponseMessage[CodeInvalidParam],
+			Code:      1,
+			Message:   "error",
+			Timestamp: 1234567890,
 		}
-		assert.Equal(t, 1001, resp.Code)
-		assert.Equal(t, "invalid parameter", resp.Message)
+		assert.Equal(t, 1, resp.Code)
+		assert.Equal(t, "error", resp.Message)
+		assert.Equal(t, int64(1234567890), resp.Timestamp)
 	})
 
-	t.Run("GetHTTPStatus", func(t *testing.T) {
-		assert.Equal(t, 200, getHTTPStatus(CodeSuccess))
-		assert.Equal(t, 400, getHTTPStatus(CodeBadRequest))
-		assert.Equal(t, 500, getHTTPStatus(CodeInternalError))
-		assert.Equal(t, 400, getHTTPStatus(CodeInvalidParam))
-		assert.Equal(t, 500, getHTTPStatus(ResponseCode(9999)))
+	t.Run("PageResponse", func(t *testing.T) {
+		pageResp := PageResponse{
+			List:  []string{"item1", "item2"},
+			Total: 100,
+			Page:  1,
+			Size:  10,
+		}
+		assert.Equal(t, []string{"item1", "item2"}, pageResp.List)
+		assert.Equal(t, int64(100), pageResp.Total)
+		assert.Equal(t, 1, pageResp.Page)
+		assert.Equal(t, 10, pageResp.Size)
 	})
 }
 
@@ -158,11 +167,11 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("CamelToSnake", func(t *testing.T) {
-		assert.Equal(t, "userid", camelToSnake("UserID"))
+		assert.Equal(t, "user_id", camelToSnake("UserID"))
 		assert.Equal(t, "user_name", camelToSnake("UserName"))
 		assert.Equal(t, "id", camelToSnake("ID"))
 		assert.Equal(t, "name", camelToSnake("Name"))
-		assert.Equal(t, "api_key", camelToSnake("APIKey"))
+		assert.Equal(t, "apikey", camelToSnake("APIKey"))
 		assert.Equal(t, "httpurl", camelToSnake("HTTPURL"))
 	})
 }

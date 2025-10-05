@@ -24,6 +24,7 @@ type Order struct {
 	ExpireAt       time.Time  `gorm:"type:timestamp;not null;index;comment:过期时间" json:"expire_at"`
 	CancelReason   *string    `gorm:"type:varchar(255);comment:取消原因" json:"cancel_reason,omitempty"`
 	Remark         *string    `gorm:"type:varchar(500);comment:备注" json:"remark,omitempty"`
+	DeductID       string     `gorm:"type:varchar(100);index;comment:库存扣减ID（TCC）" json:"deduct_id,omitempty"`
 	CreatedAt      time.Time  `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP;index;comment:创建时间" json:"created_at"`
 	UpdatedAt      time.Time  `gorm:"type:timestamp;not null;default:CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;comment:更新时间" json:"updated_at"`
 	

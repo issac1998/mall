@@ -11,11 +11,16 @@ import (
 
 	"seckill/internal/config"
 	"seckill/internal/database"
+	"seckill/internal/handler"
 	"seckill/internal/middleware"
 	"seckill/internal/redis"
+	"seckill/internal/repository"
+	"seckill/internal/service/auth"
+	"seckill/internal/utils"
 	"seckill/pkg/log"
 
 	"github.com/gin-gonic/gin"
+	redisv9 "github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -113,14 +118,79 @@ func setupRouter() *gin.Engine {
 	router.GET("/health", healthCheck)
 	router.GET("/ping", ping)
 
+	// Initialize services
+	db := database.GetDB()
+	
+	// Create Redis v9 client for services
+	redisV9Client := redisv9.NewClient(&redisv9.Options{
+		Addr:     fmt.Sprintf("%s:%d", config.GlobalConfig.Redis.Host, config.GlobalConfig.Redis.Port),
+		Password: config.GlobalConfig.Redis.Password,
+		DB:       config.GlobalConfig.Redis.DB,
+	})
+
+	// Create repositories
+	userRepo := repository.NewUserRepository(db)
+	activityRepo := repository.NewActivityRepository(db)
+	goodsRepo := repository.NewGoodsRepository(db)
+	orderRepo := repository.NewOrderRepository(db)
+
+	// Create JWT manager
+	cfg := config.GlobalConfig
+	jwtManager := utils.NewJWTManager(
+		cfg.Security.JWT.Secret,
+		cfg.Security.JWT.Issuer,
+		cfg.Security.JWT.Expire,
+		cfg.Security.JWT.RefreshTTL,
+	)
+
+	// Create services
+	authService := auth.NewAuthService(userRepo, jwtManager, redisV9Client)
+
+	// Create handlers
+	authHandler := handler.NewAuthHandler(authService)
+
+	// Setup routes
 	api := router.Group("/api")
 	{
 		v1 := api.Group("/v1")
 		{
 			v1.GET("/health", healthCheck)
 			v1.GET("/ping", ping)
+
+			// Public auth routes
+			authGroup := v1.Group("/auth")
+			{
+				authGroup.POST("/register", authHandler.Register)
+				authGroup.POST("/login", authHandler.Login)
+				authGroup.POST("/refresh", authHandler.RefreshToken)
+			}
+
+			// Protected routes
+			tokenValidator := func(token string) (*middleware.UserInfo, error) {
+				claims, err := authService.ValidateToken(context.Background(), token)
+				if err != nil {
+					return nil, err
+				}
+				return &middleware.UserInfo{
+					ID:   claims.UserID,
+					Role: claims.Role,
+				}, nil
+			}
+
+			protected := v1.Group("")
+			protected.Use(middleware.Auth(tokenValidator))
+			{
+				protected.POST("/auth/logout", authHandler.Logout)
+				protected.POST("/auth/change-password", authHandler.ChangePassword)
+			}
 		}
 	}
+
+	// Note: Seckill and Order handlers will be added after implementing missing dependencies
+	// (message queue, ID generator, etc.)
+	_ = activityRepo
+	_ = goodsRepo
+	_ = orderRepo
 
 	return router
 }

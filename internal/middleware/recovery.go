@@ -22,7 +22,7 @@ func Recovery() gin.HandlerFunc {
 		}).Error("Panic recovered")
 
 		// Return error response
-		utils.Error(c, utils.CodeInternalError, "Internal server error")
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Internal server error")
 	})
 }
 
@@ -44,7 +44,7 @@ func DefaultRecoveryFunc(c *gin.Context, err interface{}) {
 
 	// Return 500 error
 	c.JSON(http.StatusInternalServerError, gin.H{
-		"code":    utils.CodeInternalError,
+		"code":    500,
 		"message": "Internal server error",
 		"data":    nil,
 	})
@@ -68,6 +68,6 @@ func RecoveryWithLogger() gin.HandlerFunc {
 		}).Error("Panic recovered with logger")
 
 		// Return error response
-		utils.Error(c, utils.CodeInternalError, "Internal server error")
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Internal server error")
 	})
 }
