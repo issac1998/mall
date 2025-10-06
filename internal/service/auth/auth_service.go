@@ -148,14 +148,14 @@ func (s *authService) Register(ctx context.Context, req *RegisterRequest) (*mode
 func (s *authService) Login(ctx context.Context, req *LoginRequest, ip string) (*TokenResponse, error) {
 	log.Info("user login", "account", req.Account, "ip", ip)
 
-	// 1. Find user (support username/phone/email)
+	// 1. Find user (support username/phone/email, each one can satisfied)
 	user, err := s.findUserByAccount(ctx, req.Account)
 	if err != nil {
 		log.Warn("user not found", "account", req.Account)
 		return nil, errors.New("username or password incorrect")
 	}
 
-	// 2. Check user status
+	// 2. Check user status, later can add more status check
 	if !user.IsActive() {
 		return nil, errors.New("account disabled")
 	}
@@ -169,7 +169,7 @@ func (s *authService) Login(ctx context.Context, req *LoginRequest, ip string) (
 
 	// 4. Verify password
 	if !s.verifyPassword(req.Password+user.Salt, user.PasswordHash) {
-		// Record login failure
+		// Record login failure to Redis
 		s.recordLoginFailure(ctx, userID)
 		return nil, errors.New("username or password incorrect")
 	}
@@ -213,7 +213,7 @@ func (s *authService) Logout(ctx context.Context, userID int64, token string) er
 	tokenKey := fmt.Sprintf("auth:token:%d", userID)
 	s.redis.Del(ctx, tokenKey)
 
-	// 2. Add token to blacklist
+	// 2. Add token to blacklist, aviod reuse until it expires
 	blacklistKey := fmt.Sprintf("auth:blacklist:%s", token)
 	s.redis.Set(ctx, blacklistKey, "1", 2*time.Hour)
 

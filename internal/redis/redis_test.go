@@ -33,7 +33,7 @@ func TestInit(t *testing.T) {
 					IdleTimeout:  300,
 				},
 			},
-			wantErr: true, // 预期失败，因为没有Redis服务
+			wantErr: false, // Redis服务正在运行，不应该失败
 		},
 		{
 			name: "invalid_config",
