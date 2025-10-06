@@ -82,6 +82,119 @@ func (m *MultiLevelInventory) AddToBloomFilter(activityID uint64) {
 }
 
 // TryDeduct Try phase: pre-deduct stock
+func (m *MultiLevelInventory) TryDeductWithLimit(ctx context.Context, req *DeductRequest, limitPerUser int) (*DeductResult, error) {
+	// Generate deduction ID (ensure idempotency)
+	deductID := fmt.Sprintf("deduct:%s:%d", req.RequestID, time.Now().UnixNano())
+
+	// Check if already processed
+	existKey := fmt.Sprintf("deduct_result:%s", req.RequestID)
+	if exists, _ := m.redis.Exists(ctx, existKey).Result(); exists > 0 {
+		// Return existing result
+		data, _ := m.redis.Get(ctx, existKey).Bytes()
+		var result DeductResult
+		json.Unmarshal(data, &result)
+		return &result, nil
+	}
+
+	// Execute Lua script for atomic deduction with purchase limit check
+	stockKey := fmt.Sprintf("stock:%d", req.ActivityID)
+	reserveKey := fmt.Sprintf("stock:reserved:%d", req.ActivityID)
+	logKey := fmt.Sprintf("stock:deduct_log:%d", req.ActivityID)
+	purchaseCountKey := fmt.Sprintf("purchase_count:%d:%d", req.ActivityID, req.UserID)
+
+	script := `
+		local stock_key = KEYS[1]
+		local reserve_key = KEYS[2]
+		local deduct_log_key = KEYS[3]
+		local purchase_count_key = KEYS[4]
+		local deduct_id = ARGV[1]
+		local quantity = tonumber(ARGV[2])
+		local expire_time = tonumber(ARGV[3])
+		local limit_per_user = tonumber(ARGV[4])
+
+		-- Debug: Log the parameters
+		redis.log(redis.LOG_NOTICE, "TryDeductWithLimit: purchase_count_key=" .. purchase_count_key .. ", limit_per_user=" .. limit_per_user)
+
+		-- Atomically increment purchase count and check limit
+		local new_purchase_count = redis.call('INCRBY', purchase_count_key, quantity)
+		redis.call('EXPIRE', purchase_count_key, 86400) -- 24 hours expiration
+		
+		-- Debug: Log the purchase count
+		redis.log(redis.LOG_NOTICE, "TryDeductWithLimit: new_purchase_count=" .. new_purchase_count .. ", limit=" .. limit_per_user)
+		
+		-- Check if the new count exceeds the limit
+		if new_purchase_count > limit_per_user then
+			-- Rollback the increment
+			redis.call('DECRBY', purchase_count_key, quantity)
+			redis.log(redis.LOG_NOTICE, "TryDeductWithLimit: Purchase limit exceeded, rolling back")
+			return {0, 'purchase_limit_exceeded', 0}
+		end
+
+		-- Get current stock
+		local current_stock = tonumber(redis.call('GET', stock_key) or 0)
+
+		-- Check stock availability
+		if current_stock < quantity then
+			-- Rollback the purchase count increment
+			redis.call('DECRBY', purchase_count_key, quantity)
+			redis.log(redis.LOG_NOTICE, "TryDeductWithLimit: Insufficient stock, rolling back")
+			return {0, 'insufficient_stock', current_stock}
+		end
+
+		-- Pre-deduct stock (transfer to reserved stock)
+		redis.call('DECRBY', stock_key, quantity)
+		redis.call('INCRBY', reserve_key, quantity)
+
+		redis.log(redis.LOG_NOTICE, "TryDeductWithLimit: Success, stock deducted")
+
+		-- Record deduction log
+		local log_data = cjson.encode({
+			deduct_id = deduct_id,
+			quantity = quantity,
+			timestamp = redis.call('TIME')[1],
+			status = 'try'
+		})
+		redis.call('HSET', deduct_log_key, deduct_id, log_data)
+		redis.call('EXPIRE', deduct_log_key, expire_time)
+
+		-- Set deduction record expiration (15 minutes)
+		redis.call('SETEX', 'deduct_record:' .. deduct_id, expire_time, log_data)
+
+		return {1, 'success', current_stock - quantity}
+	`
+
+	result, err := m.redis.Eval(ctx, script,
+		[]string{stockKey, reserveKey, logKey, purchaseCountKey},
+		deductID, req.Quantity, 900, limitPerUser).Result()
+
+	if err != nil {
+		log.WithFields(map[string]interface{}{
+			"error": err.Error(),
+		}).Error("Redis eval failed")
+		return nil, err
+	}
+
+	// Parse result
+	resultSlice := result.([]interface{})
+	success := resultSlice[0].(int64) == 1
+	message := resultSlice[1].(string)
+	remainStock := int(resultSlice[2].(int64))
+
+	deductResult := &DeductResult{
+		Success:     success,
+		DeductID:    deductID,
+		Message:     message,
+		RemainStock: remainStock,
+	}
+
+	// Cache result for idempotency (5 minutes)
+	if data, _ := json.Marshal(deductResult); data != nil {
+		m.redis.SetEx(ctx, existKey, data, 5*time.Minute)
+	}
+
+	return deductResult, nil
+}
+
 func (m *MultiLevelInventory) TryDeduct(ctx context.Context, req *DeductRequest) (*DeductResult, error) {
 	// Generate deduction ID (ensure idempotency)
 	deductID := fmt.Sprintf("deduct:%s:%d", req.RequestID, time.Now().UnixNano())

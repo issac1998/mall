@@ -189,20 +189,9 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		return s.failResult(req.RequestID, "You are not eligible for this activity"), nil
 	}
 
-	// ========== Step 9: Purchase limit check ==========
-	purchaseCount, err := s.getUserPurchaseCount(ctx, activityID, userID)
-	if err != nil {
-		log.WithFields(map[string]interface{}{
-			"error": err.Error(),
-		}).Error("Failed to query purchase count")
-	}
+	// ========== Step 9: TCC-Try phase with purchase limit check ==========
+	//  need to check limit and deduct in one step ,otherwise a user can bypass per user limit
 
-	if purchaseCount+req.Quantity > activity.LimitPerUser {
-		return s.failResult(req.RequestID,
-			fmt.Sprintf("Exceeded purchase limit, you can buy at most %d items", activity.LimitPerUser)), nil
-	}
-
-	// ========== Step 10: TCC-Try phase (stock pre-deduction) ==========
 	deductReq := &DeductRequest{
 		RequestID:  req.RequestID,
 		ActivityID: activityID,
@@ -210,7 +199,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		Quantity:   req.Quantity,
 	}
 
-	deductResult, err := s.inventory.TryDeduct(ctx, deductReq)
+	deductResult, err := s.inventory.TryDeductWithLimit(ctx, deductReq, activity.LimitPerUser)
 	if err != nil {
 		log.WithFields(map[string]interface{}{
 			"error": err.Error(),
@@ -222,11 +211,12 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	if !deductResult.Success {
 		log.WithFields(map[string]interface{}{
 			"activity_id": activityID,
-		}).Info("Insufficient stock")
+			"message":    deductResult.Message,
+		}).Info("Deduction failed")
 		return s.failResult(req.RequestID, deductResult.Message), nil
 	}
 
-	// ========== Step 11: Generate pre-order and send to message queue ==========
+	// ========== Step 10: Generate pre-order and send to message queue ==========
 	orderMsg := &OrderMessage{
 		RequestID:  req.RequestID,
 		ActivityID: activityID,
@@ -251,7 +241,8 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	}
 
 	// ========== Step 12: Record user purchase count ==========
-	s.incrUserPurchaseCount(ctx, activityID, userID, req.Quantity)
+	// Note: Purchase count is now incremented atomically in TryDeductWithLimit
+	// s.incrUserPurchaseCount(ctx, activityID, userID, req.Quantity)
 
 	// ========== Step 13: Record seckill log ==========
 	s.recordSeckillLog(ctx, req, deductResult.DeductID, "success")
