@@ -122,6 +122,36 @@ func (mq *MemoryQueue) Subscribe(ctx context.Context, topic string, handler Mess
 	return nil
 }
 
+// Consume consumes a message from a topic (implements MessageQueue interface)
+func (mq *MemoryQueue) Consume(ctx context.Context, topic string) ([]byte, error) {
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
+
+	if mq.closed {
+		return nil, ErrQueueClosed
+	}
+
+	// Get or create topic
+	t, exists := mq.topics[topic]
+	if !exists {
+		t = &Topic{
+			name:     topic,
+			messages: make(chan []byte, mq.config.BufferSize),
+		}
+		mq.topics[topic] = t
+	}
+
+	// Consume message with timeout
+	select {
+	case message := <-t.messages:
+		return message, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(mq.config.Timeout):
+		return nil, ErrSubscribeTimeout
+	}
+}
+
 // Close closes the queue connections
 func (mq *MemoryQueue) Close() error {
 	mq.mu.Lock()

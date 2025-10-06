@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	"seckill/pkg/log"
+
 	"github.com/allegro/bigcache/v3"
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/redis/go-redis/v9"
-	"seckill/pkg/log"
 )
 
 // MultiLevelInventory multi-level inventory manager
@@ -316,4 +317,3 @@ func (m *MultiLevelInventory) GetStockFromRedis(ctx context.Context, activityID 
 	}
 	return stock, nil
 }
-

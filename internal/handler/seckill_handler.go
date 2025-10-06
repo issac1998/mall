@@ -36,7 +36,7 @@ func (h *SeckillHandler) DoSeckill(c *gin.Context) {
 		return
 	}
 	req.UserID = uint64(userID.(int64))
-
+	
 	// Get client information
 	req.IP = c.ClientIP()
 	req.UserAgent = c.Request.UserAgent()

@@ -90,10 +90,7 @@ func GetEndOfDay(t time.Time) time.Time {
 // GetStartOfWeek get start time of the week (Monday)
 func GetStartOfWeek(t time.Time) time.Time {
 	weekday := int(t.Weekday())
-	if weekday == 0 {
-		weekday = 7 // Adjust Sunday to 7
-	}
-	return GetStartOfDay(t.AddDate(0, 0, -(weekday-1)))
+	return GetStartOfDay(t.AddDate(0, 0, -weekday))
 }
 
 // GetEndOfWeek get end time of the week (Sunday)

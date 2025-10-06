@@ -37,6 +37,7 @@ func ErrorResponse(c *gin.Context, httpCode int, message string) {
 // FailedResponse returns failed response with custom code
 func FailedResponse(c *gin.Context, message string, data interface{}) {
 	c.JSON(http.StatusOK, Response{
+		// TODO ,its a http ok but business failed, need to handle it in front end?
 		Code:      1,
 		Message:   message,
 		Data:      data,
