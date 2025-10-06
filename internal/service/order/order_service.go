@@ -79,8 +79,9 @@ func (s *orderService) CreateOrder(ctx context.Context, msg *seckill.OrderMessag
 	orderID := uint64(s.idGenerator.NextID())
 	orderNo := fmt.Sprintf("SK%d", orderID)
 
-	// 3. Calculate order amount
-	totalAmount := msg.Price * int64(msg.Quantity)
+	// 3. Calculate order amount (convert to cents)
+	priceInCents := int64(msg.Price * 100)
+	totalAmount := priceInCents * int64(msg.Quantity)
 
 	// 4. Construct order
 	order := &model.Order{
@@ -89,9 +90,9 @@ func (s *orderService) CreateOrder(ctx context.Context, msg *seckill.OrderMessag
 		RequestID:      msg.RequestID,
 		ActivityID:     msg.ActivityID,
 		UserID:         msg.UserID,
-		GoodsID:        msg.ActivityID, // Simplified, should query goods info
+		GoodsID:        msg.GoodsID,
 		Quantity:       msg.Quantity,
-		Price:          msg.Price,
+		Price:          priceInCents,
 		TotalAmount:    totalAmount,
 		DiscountAmount: 0,
 		PaymentAmount:  totalAmount,
@@ -100,9 +101,10 @@ func (s *orderService) CreateOrder(ctx context.Context, msg *seckill.OrderMessag
 		ExpireAt:       time.Now().Add(15 * time.Minute), // 15 minutes payment timeout
 		Details: []model.OrderDetail{
 			{
-				GoodsID:   msg.ActivityID,
+				ID:        0, // 让数据库自动生成ID
+				GoodsID:   msg.GoodsID,
 				GoodsName: "Seckill Product",
-				Price:     msg.Price,
+				Price:     priceInCents,
 				Quantity:  msg.Quantity,
 				Amount:    totalAmount,
 			},

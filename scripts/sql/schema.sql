@@ -3,9 +3,9 @@
 -- ========================================
 
 -- Create database
-CREATE DATABASE IF NOT EXISTS `seckill` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS `seckill_dev` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-USE `seckill`;
+USE `seckill_dev`;
 
 -- ========================================
 -- 1. Users table

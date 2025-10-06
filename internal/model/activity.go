@@ -11,10 +11,10 @@ import (
 type SeckillActivity struct {
 	ID               uint64    `gorm:"primaryKey;autoIncrement;comment:活动ID" json:"id"`
 	Name             string    `gorm:"type:varchar(200);not null;comment:活动名称" json:"name"`
-	GoodsID          uint64    `gorm:"type:bigint unsigned;not null;index;comment:商品ID" json:"goods_id"`
-	Price            int64     `gorm:"type:bigint;not null;comment:秒杀价格（分）" json:"price"`
-	Stock            int       `gorm:"type:int;not null;comment:秒杀库存" json:"stock"`
-	Sold             int       `gorm:"type:int;not null;default:0;comment:已售数量" json:"sold"`
+	GoodsID          uint64    `gorm:"column:product_id;type:bigint unsigned;not null;index;comment:商品ID" json:"goods_id"`
+	Price            float64   `gorm:"column:seckill_price;type:decimal(10,2);not null;comment:秒杀价格（元）" json:"price"`
+	Stock            int       `gorm:"column:seckill_stock;type:int;not null;comment:秒杀库存" json:"stock"`
+	Sold             int       `gorm:"-" json:"sold"` // 计算字段，不映射到数据库
 	StartTime        time.Time `gorm:"type:timestamp;not null;index;comment:开始时间" json:"start_time"`
 	EndTime          time.Time `gorm:"type:timestamp;not null;index;comment:结束时间" json:"end_time"`
 	LimitPerUser     int       `gorm:"type:int;not null;default:1;comment:每人限购数量" json:"limit_per_user"`
@@ -136,7 +136,7 @@ func (a *SeckillActivity) GetSellRate() float64 {
 
 // GetPriceYuan get price in yuan
 func (a *SeckillActivity) GetPriceYuan() float64 {
-	return float64(a.Price) / 100
+	return a.Price
 }
 
 // IsPrewarmed check if activity is prewarmed	

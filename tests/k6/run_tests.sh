@@ -139,7 +139,7 @@ if [ "$NO_THRESHOLDS" = true ]; then
 fi
 
 # 添加测试脚本
-K6_CMD="$K6_CMD seckill_performance_test.js"
+K6_CMD="$K6_CMD tests/k6/seckill_performance_test.js"
 
 # 显示测试信息
 echo -e "${BLUE}==================== K6 秒杀系统性能测试 ====================${NC}"

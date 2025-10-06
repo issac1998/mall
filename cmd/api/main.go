@@ -10,14 +10,21 @@ import (
 	"time"
 
 	"seckill/internal/config"
+	"seckill/internal/consumer"
 	"seckill/internal/database"
 	"seckill/internal/handler"
 	"seckill/internal/middleware"
 	"seckill/internal/redis"
 	"seckill/internal/repository"
 	"seckill/internal/service/auth"
+	"seckill/internal/service/order"
+	"seckill/internal/service/seckill"
 	"seckill/internal/utils"
+	"seckill/pkg/breaker"
+	"seckill/pkg/limiter"
 	"seckill/pkg/log"
+	"seckill/pkg/queue"
+	"seckill/pkg/snowflake"
 
 	"github.com/gin-gonic/gin"
 	redisv9 "github.com/redis/go-redis/v9"
@@ -66,7 +73,52 @@ func main() {
 		gin.SetMode(gin.DebugMode)
 	}
 
-	router := setupRouter()
+	// Initialize dependencies
+	db := database.GetDB()
+	
+	// Create Redis v9 client for services
+	redisV9Client := redisv9.NewClient(&redisv9.Options{
+		Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+
+	// Create repositories
+	goodsRepo := repository.NewGoodsRepository(db)
+	orderRepo := repository.NewOrderRepository(db)
+
+	// Create ID generator
+	idGenerator, err := snowflake.NewIDGenerator(1)
+	if err != nil {
+		log.WithFields(map[string]interface{}{
+			"error": err.Error(),
+		}).Fatal("Failed to create ID generator")
+	}
+
+	// Create message queue
+	messageQueue, err := queue.NewMemoryQueue(nil)
+	if err != nil {
+		log.WithFields(map[string]interface{}{
+			"error": err.Error(),
+		}).Fatal("Failed to create message queue")
+	}
+
+	// Create multi-level inventory
+	inventory, err := seckill.NewMultiLevelInventory(redisV9Client)
+	if err != nil {
+		log.WithFields(map[string]interface{}{
+			"error": err.Error(),
+		}).Fatal("Failed to create inventory manager")
+	}
+
+	router := setupRouter(redisV9Client, goodsRepo, orderRepo, idGenerator, messageQueue, inventory)
+
+	// Start order consumer
+	orderConsumer := consumer.NewOrderConsumer(
+		order.NewOrderService(orderRepo, goodsRepo, inventory, idGenerator),
+		messageQueue,
+	)
+	orderConsumer.Start(context.Background())
 
 	server := &http.Server{
 		Addr:           fmt.Sprintf(":%d", cfg.Server.Port),
@@ -108,7 +160,7 @@ func main() {
 	log.Info("Server exited")
 }
 
-func setupRouter() *gin.Engine {
+func setupRouter(redisV9Client *redisv9.Client, goodsRepo repository.GoodsRepository, orderRepo repository.OrderRepository, idGenerator *snowflake.IDGenerator, messageQueue *queue.MemoryQueue, inventory *seckill.MultiLevelInventory) *gin.Engine {
 	router := gin.New()
 
 	router.Use(middleware.Logger())
@@ -120,19 +172,10 @@ func setupRouter() *gin.Engine {
 
 	// Initialize services
 	db := database.GetDB()
-	
-	// Create Redis v9 client for services
-	redisV9Client := redisv9.NewClient(&redisv9.Options{
-		Addr:     fmt.Sprintf("%s:%d", config.GlobalConfig.Redis.Host, config.GlobalConfig.Redis.Port),
-		Password: config.GlobalConfig.Redis.Password,
-		DB:       config.GlobalConfig.Redis.DB,
-	})
 
 	// Create repositories
 	userRepo := repository.NewUserRepository(db)
 	activityRepo := repository.NewActivityRepository(db)
-	goodsRepo := repository.NewGoodsRepository(db)
-	orderRepo := repository.NewOrderRepository(db)
 
 	// Create JWT manager
 	cfg := config.GlobalConfig
@@ -143,11 +186,33 @@ func setupRouter() *gin.Engine {
 		cfg.Security.JWT.RefreshTTL,
 	)
 
+	// Create multi-dimension rate limiter
+	rateLimiter := limiter.NewMultiDimensionLimiter(redisV9Client)
+
+	// Create circuit breaker manager
+	circuitBreakerManager := breaker.NewManager(breaker.Config{
+		MaxRequests:   5,
+		Interval:      time.Minute,
+		Timeout:       30 * time.Second,
+		ReadyToTrip:   nil, // Use default
+		OnStateChange: nil,
+	})
+
 	// Create services
 	authService := auth.NewAuthService(userRepo, jwtManager, redisV9Client)
+	seckillService := seckill.NewSeckillService(
+		activityRepo,
+		inventory,
+		rateLimiter,
+		circuitBreakerManager,
+		messageQueue,
+		redisV9Client,
+	)
 
 	// Create handlers
 	authHandler := handler.NewAuthHandler(authService)
+	activityHandler := handler.NewActivityHandler(activityRepo)
+	seckillHandler := handler.NewSeckillHandler(seckillService)
 
 	// Setup routes
 	api := router.Group("/api")
@@ -182,15 +247,22 @@ func setupRouter() *gin.Engine {
 			{
 				protected.POST("/auth/logout", authHandler.Logout)
 				protected.POST("/auth/change-password", authHandler.ChangePassword)
+				
+				// Activity routes
+				protected.GET("/activities", activityHandler.ListActivities)
+				protected.GET("/activities/:id", activityHandler.GetActivity)
+				
+				// Seckill routes
+				seckillGroup := protected.Group("/seckill")
+				seckillGroup.Use(middleware.SeckillRateLimit())
+				{
+					seckillGroup.POST("/execute", seckillHandler.DoSeckill)
+					seckillGroup.GET("/result/:request_id", seckillHandler.QueryResult)
+					seckillGroup.POST("/prewarm/:activity_id", seckillHandler.PrewarmActivity)
+				}
 			}
 		}
 	}
-
-	// Note: Seckill and Order handlers will be added after implementing missing dependencies
-	// (message queue, ID generator, etc.)
-	_ = activityRepo
-	_ = goodsRepo
-	_ = orderRepo
 
 	return router
 }

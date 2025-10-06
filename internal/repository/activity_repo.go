@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"gorm.io/gorm"
@@ -81,6 +82,11 @@ func (r *activityRepository) GetByIDWithGoods(ctx context.Context, id int64) (*m
 		}
 		return nil, err
 	}
+	
+	// 添加调试日志
+	log.Printf("DEBUG: Activity loaded from DB - ID: %d, Stock: %d, Price: %d, GoodsID: %d, LimitPerUser: %d", 
+		activity.ID, activity.Stock, activity.Price, activity.GoodsID, activity.LimitPerUser)
+	
 	return &activity, nil
 }
 

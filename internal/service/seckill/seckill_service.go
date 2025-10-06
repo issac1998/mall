@@ -139,13 +139,34 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	}
 
 	// ========== Step 6: Activity validity check ==========
-	activity, err := s.activityRepo.GetByID(ctx, int64(activityID))
-	if err != nil {
+	// First try to get from Redis cache
+	var activity *model.SeckillActivity
+	configKey := fmt.Sprintf("activity:config:%d", activityID)
+	if configData, err := s.redis.Get(ctx, configKey).Bytes(); err == nil {
+		// Found in cache, unmarshal
+		if err := json.Unmarshal(configData, &activity); err == nil {
+			log.WithFields(map[string]interface{}{
+				"activity_id": activityID,
+			}).Debug("Activity loaded from Redis cache")
+		} else {
+			activity = nil // Fallback to database
+		}
+	}
+	
+	// If not found in cache, query from database
+	if activity == nil {
+		var err error
+		activity, err = s.activityRepo.GetByID(ctx, int64(activityID))
+		if err != nil {
+			log.WithFields(map[string]interface{}{
+				"error": err.Error(),
+			}).Error("Failed to query activity")
+			s.recordCircuitBreakerError(cbName)
+			return nil, err
+		}
 		log.WithFields(map[string]interface{}{
-			"error": err.Error(),
-		}).Error("Failed to query activity")
-		s.recordCircuitBreakerError(cbName)
-		return nil, err
+			"activity_id": activityID,
+		}).Debug("Activity loaded from database")
 	}
 
 	if !activity.IsRunning() {
@@ -210,6 +231,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		RequestID:  req.RequestID,
 		ActivityID: activityID,
 		UserID:     userID,
+		GoodsID:    activity.GoodsID,
 		Quantity:   req.Quantity,
 		Price:      activity.Price,
 		DeductID:   deductResult.DeductID,
@@ -368,8 +390,18 @@ func (s *seckillService) PrewarmActivity(ctx context.Context, activityID uint64)
 	if err != nil {
 		return err
 	}
+	
+	log.WithFields(map[string]interface{}{
+		"activity_id": activityID,
+		"stock":       activity.Stock,
+		"name":        activity.Name,
+	}).Info("Activity loaded from database")
 
 	// 2. Sync stock to Redis
+	log.WithFields(map[string]interface{}{
+		"activity_id": activityID,
+		"stock":       activity.Stock,
+	}).Info("Syncing stock to Redis")
 	if err := s.inventory.SyncToRedis(ctx, activityID, activity.Stock); err != nil {
 		return err
 	}
@@ -406,12 +438,13 @@ func (s *seckillService) QuerySeckillResult(ctx context.Context, requestID strin
 
 // OrderMessage order message
 type OrderMessage struct {
-	RequestID  string `json:"request_id"`
-	ActivityID uint64 `json:"activity_id"`
-	UserID     uint64 `json:"user_id"`
-	Quantity   int    `json:"quantity"`
-	Price      int64  `json:"price"`
-	DeductID   string `json:"deduct_id"`
-	Timestamp  int64  `json:"timestamp"`
+	RequestID  string  `json:"request_id"`
+	ActivityID uint64  `json:"activity_id"`
+	UserID     uint64  `json:"user_id"`
+	GoodsID    uint64  `json:"goods_id"`
+	Quantity   int     `json:"quantity"`
+	Price      float64 `json:"price"`
+	DeductID   string  `json:"deduct_id"`
+	Timestamp  int64   `json:"timestamp"`
 }
 

@@ -18,12 +18,12 @@ import (
 
 // TracerConfig 链路追踪配置
 type TracerConfig struct {
-	ServiceName     string
-	ServiceVersion  string
-	Environment     string
-	JaegerEndpoint  string
-	SamplingRate    float64
-	Enabled         bool
+	ServiceName    string
+	ServiceVersion string
+	Environment    string
+	JaegerEndpoint string
+	SamplingRate   float64
+	Enabled        bool
 }
 
 // Tracer 链路追踪器
@@ -280,10 +280,10 @@ func (t *Tracer) SpanID(ctx context.Context) string {
 func (t *Tracer) WithTimeout(ctx context.Context, operationName string, timeout time.Duration) (context.Context, oteltrace.Span, context.CancelFunc) {
 	ctx, span := t.StartSpan(ctx, operationName)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
-	
+
 	// 添加超时属性
 	t.AddSpanAttributes(span, attribute.String("timeout", timeout.String()))
-	
+
 	return ctx, span, cancel
 }
 
@@ -344,12 +344,12 @@ func getClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		return xff
 	}
-	
+
 	// 检查X-Real-IP头
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
 		return xri
 	}
-	
+
 	// 使用RemoteAddr
 	return r.RemoteAddr
 }
@@ -357,11 +357,11 @@ func getClientIP(r *http.Request) string {
 // DefaultTracerConfig 默认追踪器配置
 func DefaultTracerConfig() *TracerConfig {
 	return &TracerConfig{
-		ServiceName:     "seckill-system",
-		ServiceVersion:  "1.0.0",
-		Environment:     "development",
-		JaegerEndpoint:  "http://localhost:14268/api/traces",
-		SamplingRate:    1.0,
-		Enabled:         true,
+		ServiceName:    "seckill-system",
+		ServiceVersion: "1.0.0",
+		Environment:    "development",
+		JaegerEndpoint: "http://localhost:14268/api/traces",
+		SamplingRate:   1.0,
+		Enabled:        true,
 	}
 }

@@ -2,7 +2,7 @@
 -- Seckill system test data initialization script
 -- ========================================
 
-USE `seckill`;
+USE `seckill_dev`;
 
 -- ========================================
 -- 1. Insert test user data

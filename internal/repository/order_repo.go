@@ -57,7 +57,7 @@ func (r *orderRepository) Create(ctx context.Context, order *model.Order) error 
 				order.Details[i].OrderID = order.ID
 				order.Details[i].OrderNo = order.OrderNo
 			}
-			if err := tx.Create(&order.Details).Error; err != nil {
+			if err := tx.Omit("id").Create(&order.Details).Error; err != nil {
 				return err
 			}
 		}
