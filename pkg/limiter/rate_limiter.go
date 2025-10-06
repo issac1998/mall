@@ -113,10 +113,10 @@ func NewMultiDimensionLimiter(client *redis.Client) *MultiDimensionLimiter {
 	return &MultiDimensionLimiter{
 		client: client,
 		limiters: map[string]*LimiterConfig{
-			"global":   {Limit: 10000, Window: time.Minute},
-			"user":     {Limit: 10, Window: time.Minute},
-			"ip":       {Limit: 100, Window: time.Minute},
-			"activity": {Limit: 5000, Window: time.Minute},
+			"global":   {Limit: 50000, Window: time.Minute},
+			"user":     {Limit: 50, Window: time.Minute},
+			"ip":       {Limit: 500, Window: time.Minute},
+			"activity": {Limit: 20000, Window: time.Minute},
 		},
 	}
 }

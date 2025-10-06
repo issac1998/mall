@@ -37,10 +37,27 @@ tracing:
     service_name: "seckill-api-dev"
 
 rate_limit:
-  enabled: false  # Disable for development
+  enabled: true
+  global:
+    rps: 1000
+    burst: 2000
+    ttl: 60s
+  per_user:
+    rps: 50
+    burst: 100
+    ttl: 60s
+  per_ip:
+    rps: 200
+    burst: 400
+    ttl: 60s
 
 circuit_break:
-  enabled: false  # Disable for development
+  enabled: true
+  max_requests: 100
+  interval: 60s
+  timeout: 30s
+  failure_ratio: 0.6
+  min_request_count: 10
 
 security:
   jwt:

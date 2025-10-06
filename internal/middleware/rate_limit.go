@@ -132,8 +132,8 @@ func APIRateLimit(rps float64, burst int) gin.HandlerFunc {
 // SeckillRateLimit seckill-specific rate limiting middleware
 func SeckillRateLimit() gin.HandlerFunc {
 	config := DefaultMiddlewareRateLimitConfig()
-	config.Rate = 10   // 10 requests per second for seckill
-	config.Burst = 20  // Maximum burst of 20 requests
+	config.Rate = 50   // 50 requests per second for seckill
+	config.Burst = 100  // Maximum burst of 100 requests
 	config.KeyFunc = func(c *gin.Context) string {
 		userID := c.GetString("user_id")
 		if userID == "" {

@@ -16,7 +16,7 @@ import (
 // OrderService order service interface
 type OrderService interface {
 	// Create order (synchronous)
-	CreateOrder(ctx context.Context, msg *seckill.OrderMessage) error
+	CreateOrder(ctx context.Context, msg *model.OrderMessage) error
 
 	// Consume order message (asynchronous)
 	ConsumeOrderMessage(ctx context.Context, messageData []byte) error
@@ -58,7 +58,7 @@ func NewOrderService(
 }
 
 // CreateOrder creates an order
-func (s *orderService) CreateOrder(ctx context.Context, msg *seckill.OrderMessage) error {
+func (s *orderService) CreateOrder(ctx context.Context, msg *model.OrderMessage) error {
 	log.WithFields(map[string]interface{}{
 		"request_id": msg.RequestID,
 	}).Info("Start creating order")
@@ -122,18 +122,29 @@ func (s *orderService) CreateOrder(ctx context.Context, msg *seckill.OrderMessag
 		return err
 	}
 
+	// 6. Confirm stock deduction (TCC-Confirm phase)
+	if err := s.inventory.ConfirmDeduct(ctx, msg.DeductID, msg.ActivityID); err != nil {
+		log.WithFields(map[string]interface{}{
+			"deduct_id": msg.DeductID,
+			"error":     err.Error(),
+		}).Error("Failed to confirm stock deduction")
+		// TODO: Order is already created, but stock confirmation failed
+		// This should be handled by a compensation mechanism
+	}
+
 	log.WithFields(map[string]interface{}{
-		"order_no": orderNo,
-		"user_id":  msg.UserID,
-		"amount":   totalAmount,
-	}).Info("Order created successfully")
+		"order_no":  orderNo,
+		"user_id":   msg.UserID,
+		"amount":    totalAmount,
+		"deduct_id": msg.DeductID,
+	}).Info("Order created and stock confirmed successfully")
 
 	return nil
 }
 
 // ConsumeOrderMessage consumes order message
 func (s *orderService) ConsumeOrderMessage(ctx context.Context, messageData []byte) error {
-	var msg seckill.OrderMessage
+	var msg model.OrderMessage
 	if err := json.Unmarshal(messageData, &msg); err != nil {
 		log.WithFields(map[string]interface{}{
 			"error": err.Error(),

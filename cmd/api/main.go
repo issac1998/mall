@@ -86,6 +86,7 @@ func main() {
 	// Create repositories
 	goodsRepo := repository.NewGoodsRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
+	// activityRepo := repository.NewActivityRepository(db) // For stock sync service (disabled for now)
 
 	// Create ID generator
 	idGenerator, err := snowflake.NewIDGenerator(1)
@@ -119,6 +120,10 @@ func main() {
 		messageQueue,
 	)
 	orderConsumer.Start(context.Background())
+
+	// Start stock sync service
+	// stockService := stock.NewStockService(activityRepo, goodsRepo, inventory, redisV9Client)
+	// go stockService.StartPeriodicSync(context.Background(), 5*time.Minute)
 
 	server := &http.Server{
 		Addr:           fmt.Sprintf(":%d", cfg.Server.Port),

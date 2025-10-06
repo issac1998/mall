@@ -217,7 +217,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	}
 
 	// ========== Step 10: Generate pre-order and send to message queue ==========
-	orderMsg := &OrderMessage{
+	orderMsg := &model.OrderMessage{
 		RequestID:  req.RequestID,
 		ActivityID: activityID,
 		UserID:     userID,
@@ -427,15 +427,5 @@ func (s *seckillService) QuerySeckillResult(ctx context.Context, requestID strin
 	return &result, nil
 }
 
-// OrderMessage order message
-type OrderMessage struct {
-	RequestID  string  `json:"request_id"`
-	ActivityID uint64  `json:"activity_id"`
-	UserID     uint64  `json:"user_id"`
-	GoodsID    uint64  `json:"goods_id"`
-	Quantity   int     `json:"quantity"`
-	Price      float64 `json:"price"`
-	DeductID   string  `json:"deduct_id"`
-	Timestamp  int64   `json:"timestamp"`
-}
+// OrderMessage has been moved to internal/model/message.go
 

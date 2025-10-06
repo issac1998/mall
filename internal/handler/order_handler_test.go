@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"seckill/internal/model"
-	"seckill/internal/service/seckill"
 )
 
 // MockOrderService is a mock implementation of order.OrderService
@@ -20,7 +19,7 @@ type MockOrderService struct {
 	mock.Mock
 }
 
-func (m *MockOrderService) CreateOrder(ctx context.Context, msg *seckill.OrderMessage) error {
+func (m *MockOrderService) CreateOrder(ctx context.Context, msg *model.OrderMessage) error {
 	args := m.Called(ctx, msg)
 	return args.Error(0)
 }

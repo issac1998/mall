@@ -110,7 +110,7 @@ func TestSeckillResult_Failure(t *testing.T) {
 }
 
 func TestOrderMessage_Validation(t *testing.T) {
-	msg := &OrderMessage{
+	msg := &model.OrderMessage{
 		RequestID:  "test-123",
 		ActivityID: 1,
 		UserID:     100,
@@ -124,7 +124,7 @@ func TestOrderMessage_Validation(t *testing.T) {
 	assert.Greater(t, msg.ActivityID, uint64(0))
 	assert.Greater(t, msg.UserID, uint64(0))
 	assert.Greater(t, msg.Quantity, 0)
-	assert.Greater(t, msg.Price, int64(0))
+	assert.Greater(t, msg.Price, float64(0))
 	assert.NotEmpty(t, msg.DeductID)
 	assert.Greater(t, msg.Timestamp, int64(0))
 }

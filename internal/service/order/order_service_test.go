@@ -5,19 +5,18 @@ import (
 	"testing"
 	"time"
 
-	"seckill/internal/service/seckill"
 	"seckill/internal/model"
 )
 
 func TestOrderMessage_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
-		message seckill.OrderMessage
+		message model.OrderMessage
 		wantErr bool
 	}{
 		{
 			name: "valid message",
-			message: seckill.OrderMessage{
+			message: model.OrderMessage{
 				RequestID:  "req-123",
 				ActivityID: 1,
 				UserID:     1,
@@ -30,7 +29,7 @@ func TestOrderMessage_Validation(t *testing.T) {
 		},
 		{
 			name: "invalid activity id",
-			message: seckill.OrderMessage{
+			message: model.OrderMessage{
 				RequestID:  "req-123",
 				ActivityID: 0,
 				UserID:     1,
@@ -43,7 +42,7 @@ func TestOrderMessage_Validation(t *testing.T) {
 		},
 		{
 			name: "invalid user id",
-			message: seckill.OrderMessage{
+			message: model.OrderMessage{
 				RequestID:  "req-123",
 				ActivityID: 1,
 				UserID:     0,
@@ -56,7 +55,7 @@ func TestOrderMessage_Validation(t *testing.T) {
 		},
 		{
 			name: "invalid quantity",
-			message: seckill.OrderMessage{
+			message: model.OrderMessage{
 				RequestID:  "req-123",
 				ActivityID: 1,
 				UserID:     1,
@@ -87,7 +86,7 @@ func TestOrderServiceInterface(t *testing.T) {
 	var service OrderService
 	if service != nil {
 		ctx := context.Background()
-		msg := &seckill.OrderMessage{}
+		msg := &model.OrderMessage{}
 		
 		// Test method signatures exist
 		_ = service.CreateOrder(ctx, msg)
