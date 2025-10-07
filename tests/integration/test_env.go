@@ -23,6 +23,7 @@ import (
 	"seckill/internal/service/seckill"
 	"seckill/internal/utils"
 	"seckill/pkg/breaker"
+	"seckill/pkg/degrade"
 	"seckill/pkg/limiter"
 	"seckill/pkg/lock"
 	"seckill/pkg/queue"
@@ -31,19 +32,19 @@ import (
 
 // IntegrationTestEnv 集成测试环境
 type IntegrationTestEnv struct {
-	DB             *gorm.DB
-	Redis          *redis.Client
-	Router         *gin.Engine
-	Config         *config.Config
-	JWTManager     *utils.JWTManager
-	Lock           *lock.RedisLock
-	Queue          *queue.MemoryQueue
-	IDGenerator    *snowflake.IDGenerator
-	
+	DB          *gorm.DB
+	Redis       *redis.Client
+	Router      *gin.Engine
+	Config      *config.Config
+	JWTManager  *utils.JWTManager
+	Lock        *lock.RedisLock
+	Queue       *queue.MemoryQueue
+	IDGenerator *snowflake.IDGenerator
+
 	// Services
 	AuthService    auth.AuthService
 	SeckillService seckill.SeckillService
-	
+
 	// Handlers
 	AuthHandler    *handler.AuthHandler
 	SeckillHandler *handler.SeckillHandler
@@ -87,10 +88,10 @@ func SetupIntegrationTestEnv(t *testing.T) *IntegrationTestEnv {
 
 	// 初始化数据库
 	db := setupTestDB(t, cfg.Database)
-	
+
 	// 初始化Redis
 	redisClient := setupTestRedis(t, cfg.Redis)
-	
+
 	// 初始化JWT管理器
 	jwtManager := utils.NewJWTManager(
 		cfg.Security.JWT.Secret,
@@ -98,31 +99,31 @@ func SetupIntegrationTestEnv(t *testing.T) *IntegrationTestEnv {
 		cfg.Security.JWT.Expire,
 		cfg.Security.JWT.RefreshTTL,
 	)
-	
+
 	// 初始化分布式锁
 	distributedLock := lock.NewRedisLock(redisClient, "test", "test-node", 30*time.Second)
-	
+
 	// 初始化消息队列
 	messageQueue, err := queue.NewMemoryQueue(&queue.MemoryQueueConfig{
 		BufferSize: 1000,
 	})
 	require.NoError(t, err)
-	
+
 	// 初始化ID生成器
 	idGenerator, err := snowflake.NewIDGenerator(1)
 	require.NoError(t, err)
-	
+
 	// 初始化Repository
 	userRepo := repository.NewUserRepository(db)
 	activityRepo := repository.NewActivityRepository(db)
-	
+
 	// 初始化多级库存管理器
 	inventory, err := seckill.NewMultiLevelInventory(redisClient)
 	require.NoError(t, err)
-	
+
 	// 初始化限流器
 	rateLimiter := limiter.NewMultiDimensionLimiter(redisClient)
-	
+
 	// 初始化熔断器
 	circuitBreaker := breaker.NewManager(breaker.Config{
 		MaxRequests: 10,
@@ -132,6 +133,9 @@ func SetupIntegrationTestEnv(t *testing.T) *IntegrationTestEnv {
 			return counts.TotalFailures >= 5
 		},
 	})
+
+	// 初始化降级管理器
+	degradeManager := degrade.NewDegradeManager(redisClient)
 	
 	// 初始化Service
 	authService := auth.NewAuthService(userRepo, jwtManager, redisClient)
@@ -140,17 +144,18 @@ func SetupIntegrationTestEnv(t *testing.T) *IntegrationTestEnv {
 		inventory,
 		rateLimiter,
 		circuitBreaker,
+		degradeManager,
 		messageQueue,
 		redisClient,
 	)
-	
+
 	// 初始化Handler
 	authHandler := handler.NewAuthHandler(authService)
 	seckillHandler := handler.NewSeckillHandler(seckillService)
-	
+
 	// 设置路由
 	router := setupTestRoutes(authHandler, seckillHandler, jwtManager)
-	
+
 	return &IntegrationTestEnv{
 		DB:             db,
 		Redis:          redisClient,
@@ -172,12 +177,12 @@ func TeardownIntegrationTestEnv(env *IntegrationTestEnv) {
 	if env.Queue != nil {
 		env.Queue.Close()
 	}
-	
+
 	if env.Redis != nil {
 		cleanupTestRedis(env.Redis)
 		env.Redis.Close()
 	}
-	
+
 	if env.DB != nil {
 		cleanupTestDB(env.DB)
 		sqlDB, _ := env.DB.DB()
@@ -189,10 +194,10 @@ func TeardownIntegrationTestEnv(env *IntegrationTestEnv) {
 func setupTestDB(t *testing.T, cfg config.DatabaseConfig) *gorm.DB {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.DBName)
-	
+
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	
+
 	// 自动迁移表结构
 	err = db.AutoMigrate(
 		&model.User{},
@@ -203,7 +208,7 @@ func setupTestDB(t *testing.T, cfg config.DatabaseConfig) *gorm.DB {
 		&model.StockLog{},
 	)
 	require.NoError(t, err)
-	
+
 	return db
 }
 
@@ -214,11 +219,11 @@ func setupTestRedis(t *testing.T, cfg config.RedisConfig) *redis.Client {
 		Password: cfg.Password,
 		DB:       cfg.DB,
 	})
-	
+
 	ctx := context.Background()
 	_, err := client.Ping(ctx).Result()
 	require.NoError(t, err)
-	
+
 	return client
 }
 
@@ -229,7 +234,7 @@ func createTokenValidator(jwtManager *utils.JWTManager) func(token string) (*mid
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return &middleware.UserInfo{
 			ID:   claims.UserID,
 			Role: claims.Role,
@@ -241,17 +246,17 @@ func createTokenValidator(jwtManager *utils.JWTManager) func(token string) (*mid
 func setupTestRoutes(authHandler *handler.AuthHandler, seckillHandler *handler.SeckillHandler, jwtManager *utils.JWTManager) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	
+
 	// 添加中间件
 	router.Use(gin.Recovery())
 	router.Use(middleware.CORS())
-	
+
 	// 创建token验证器
 	tokenValidator := createTokenValidator(jwtManager)
-	
+
 	// API路由组
 	api := router.Group("/api")
-	
+
 	// 认证路由
 	auth := api.Group("/auth")
 	{
@@ -260,7 +265,7 @@ func setupTestRoutes(authHandler *handler.AuthHandler, seckillHandler *handler.S
 		auth.POST("/logout", middleware.Auth(tokenValidator), authHandler.Logout)
 		auth.POST("/refresh", authHandler.RefreshToken)
 	}
-	
+
 	// 秒杀路由
 	seckillGroup := api.Group("/seckill")
 	seckillGroup.Use(middleware.Auth(tokenValidator))
@@ -269,7 +274,7 @@ func setupTestRoutes(authHandler *handler.AuthHandler, seckillHandler *handler.S
 		seckillGroup.GET("/result", seckillHandler.QueryResult)
 		seckillGroup.POST("/prewarm/:activity_id", seckillHandler.PrewarmActivity)
 	}
-	
+
 	return router
 }
 

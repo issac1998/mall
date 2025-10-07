@@ -19,6 +19,7 @@ import (
 	"seckill/internal/service/auth"
 	"seckill/internal/service/order"
 	"seckill/internal/service/seckill"
+	"seckill/internal/service/stock"
 	"seckill/internal/utils"
 	"seckill/pkg/breaker"
 	"seckill/pkg/degrade"
@@ -76,7 +77,7 @@ func main() {
 
 	// Initialize dependencies
 	db := database.GetDB()
-	
+
 	// Create Redis v9 client for services
 	redisV9Client := redisv9.NewClient(&redisv9.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
@@ -125,9 +126,17 @@ func main() {
 	)
 	vipConsumer.Start(context.Background())
 
-	// Start stock sync service
-	// stockService := stock.NewStockService(activityRepo, goodsRepo, inventory, redisV9Client)
-	// go stockService.StartPeriodicSync(context.Background(), 5*time.Minute)
+	// Create services for workers
+	activityRepo := repository.NewActivityRepository(db)
+	orderService := order.NewOrderService(orderRepo, goodsRepo, inventory, idGenerator)
+	stockService := stock.NewStockService(activityRepo, goodsRepo, inventory, redisV9Client)
+
+	// Create context for workers
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+
+	// Start all background workers
+	startWorkers(workerCtx, orderService, stockService, activityRepo)
 
 	server := &http.Server{
 		Addr:           fmt.Sprintf(":%d", cfg.Server.Port),
@@ -157,6 +166,9 @@ func main() {
 
 	log.Info("Shutting down server...")
 
+	// Cancel worker context to stop all workers
+	workerCancel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -167,6 +179,189 @@ func main() {
 	}
 
 	log.Info("Server exited")
+}
+
+// ========== Worker Functions ==========
+
+// startWorkers starts all background workers
+func startWorkers(ctx context.Context, orderService order.OrderService, stockService stock.StockService, activityRepo repository.ActivityRepository) {
+	// Worker 1: Handle expired orders (every 1 minute)
+	go expiredOrderWorker(ctx, orderService, 1*time.Minute)
+
+	// Worker 2: Sync stock from MySQL to Redis (every 3 minutes)
+	go stockToRedisWorker(ctx, stockService, activityRepo, 3*time.Minute)
+
+	// Worker 3: Sync stock from Redis to MySQL (every 5 minutes)
+	go stockToMySQLWorker(ctx, stockService, activityRepo, 5*time.Minute)
+
+	// Worker 4: Check stock consistency and repair (every 10 minutes)
+	go stockConsistencyWorker(ctx, stockService, activityRepo, 10*time.Minute)
+
+	// Worker 5: Start periodic sync service
+	go func() {
+		stockService.StartPeriodicSync(ctx, 2*time.Minute)
+	}()
+
+	log.Info("All workers started successfully")
+}
+
+// expiredOrderWorker handles expired orders periodically
+func expiredOrderWorker(ctx context.Context, orderService order.OrderService, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Info("Expired order worker started", "interval", interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Expired order worker stopped")
+			return
+		case <-ticker.C:
+			log.Info("Processing expired orders...")
+			if err := orderService.HandleExpiredOrders(ctx); err != nil {
+				log.WithFields(map[string]interface{}{
+					"error": err.Error(),
+				}).Error("Failed to handle expired orders")
+			}
+		}
+	}
+}
+
+// stockToRedisWorker syncs stock from MySQL to Redis periodically
+func stockToRedisWorker(ctx context.Context, stockService stock.StockService, activityRepo repository.ActivityRepository, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Info("Stock to Redis worker started", "interval", interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stock to Redis worker stopped")
+			return
+		case <-ticker.C:
+			log.Info("Syncing stock from MySQL to Redis...")
+			activityIDs := getActiveActivityIDs(ctx, activityRepo)
+			for _, activityID := range activityIDs {
+				if err := stockService.SyncStockToRedis(ctx, activityID); err != nil {
+					log.WithFields(map[string]interface{}{
+						"activity_id": activityID,
+						"error":       err.Error(),
+					}).Error("Failed to sync stock to Redis")
+				}
+			}
+		}
+	}
+}
+
+// stockToMySQLWorker syncs stock from Redis to MySQL periodically (renamed from stockSyncWorker)
+func stockToMySQLWorker(ctx context.Context, stockService stock.StockService, activityRepo repository.ActivityRepository, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Info("Stock to MySQL worker started", "interval", interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stock to MySQL worker stopped")
+			return
+		case <-ticker.C:
+			log.Info("Syncing stock from Redis to MySQL...")
+			activityIDs := getActiveActivityIDs(ctx, activityRepo)
+			for _, activityID := range activityIDs {
+				if err := stockService.SyncStockToMySQL(ctx, activityID); err != nil {
+					log.WithFields(map[string]interface{}{
+						"activity_id": activityID,
+						"error":       err.Error(),
+					}).Error("Failed to sync stock to MySQL")
+				}
+			}
+		}
+	}
+}
+
+// stockConsistencyWorker checks stock consistency and repairs inconsistencies periodically
+func stockConsistencyWorker(ctx context.Context, stockService stock.StockService, activityRepo repository.ActivityRepository, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Info("Stock consistency worker started", "interval", interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stock consistency worker stopped")
+			return
+		case <-ticker.C:
+			log.Info("Checking stock consistency...")
+			activityIDs := getActiveActivityIDs(ctx, activityRepo)
+			for _, activityID := range activityIDs {
+				report, err := stockService.CheckStockConsistency(ctx, activityID)
+				if err != nil {
+					log.WithFields(map[string]interface{}{
+						"activity_id": activityID,
+						"error":       err.Error(),
+					}).Error("Failed to check stock consistency")
+					continue
+				}
+
+				// Log consistency report
+				log.WithFields(map[string]interface{}{
+					"activity_id":    activityID,
+					"redis_stock":    report.RedisStock,
+					"mysql_stock":    report.MySQLStock,
+					"reserved_stock": report.ReservedStock,
+					"difference":     report.Difference,
+					"is_consistent":  report.IsConsistent,
+				}).Info("Stock consistency report")
+
+				// Auto repair inconsistencies
+				if !report.IsConsistent {
+					log.WithFields(map[string]interface{}{
+						"activity_id": activityID,
+						"difference":  report.Difference,
+					}).Warn("Stock inconsistency detected, attempting repair")
+
+					if err := stockService.RepairStockInconsistency(ctx, activityID); err != nil {
+						log.WithFields(map[string]interface{}{
+							"activity_id": activityID,
+							"error":       err.Error(),
+						}).Error("Failed to repair stock inconsistency")
+					} else {
+						log.WithFields(map[string]interface{}{
+							"activity_id": activityID,
+						}).Info("Stock inconsistency repaired successfully")
+					}
+				}
+			}
+		}
+	}
+}
+
+// getActiveActivityIDs returns list of active activity IDs from database
+func getActiveActivityIDs(ctx context.Context, activityRepo repository.ActivityRepository) []uint64 {
+	// Query active activities from database
+	activities, _, err := activityRepo.ListActive(ctx, 1, 100) // Get first 100 active activities
+	if err != nil {
+		log.WithFields(map[string]interface{}{
+			"error": err.Error(),
+		}).Error("Failed to query active activities")
+		return []uint64{}
+	}
+
+	activityIDs := make([]uint64, 0, len(activities))
+	for _, activity := range activities {
+		activityIDs = append(activityIDs, activity.ID)
+	}
+
+	log.WithFields(map[string]interface{}{
+		"count":        len(activityIDs),
+		"activity_ids": activityIDs,
+	}).Debug("Active activities loaded")
+
+	return activityIDs
 }
 
 func setupRouter(redisV9Client *redisv9.Client, goodsRepo repository.GoodsRepository, orderRepo repository.OrderRepository, idGenerator *snowflake.IDGenerator, messageQueue *queue.MemoryQueue, inventory *seckill.MultiLevelInventory) *gin.Engine {
@@ -260,11 +455,11 @@ func setupRouter(redisV9Client *redisv9.Client, goodsRepo repository.GoodsReposi
 			{
 				protected.POST("/auth/logout", authHandler.Logout)
 				protected.POST("/auth/change-password", authHandler.ChangePassword)
-				
+
 				// Activity routes
 				protected.GET("/activities", activityHandler.ListActivities)
 				protected.GET("/activities/:id", activityHandler.GetActivity)
-				
+
 				// Seckill routes
 				seckillGroup := protected.Group("/seckill")
 				seckillGroup.Use(middleware.SeckillRateLimit())
