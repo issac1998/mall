@@ -115,12 +115,15 @@ func main() {
 
 	router := setupRouter(redisV9Client, goodsRepo, orderRepo, idGenerator, messageQueue, inventory)
 
-	// Start order consumer
-	orderConsumer := consumer.NewOrderConsumer(
+	// Start VIP priority order consumer
+	// 3 VIP workers + 10 normal workers
+	vipConsumer := consumer.NewVIPPriorityConsumer(
 		order.NewOrderService(orderRepo, goodsRepo, inventory, idGenerator),
 		messageQueue,
+		3,  // VIP workers
+		10, // Normal workers
 	)
-	orderConsumer.Start(context.Background())
+	vipConsumer.Start(context.Background())
 
 	// Start stock sync service
 	// stockService := stock.NewStockService(activityRepo, goodsRepo, inventory, redisV9Client)

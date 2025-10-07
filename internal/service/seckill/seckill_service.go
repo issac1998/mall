@@ -246,6 +246,9 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	}
 
 	// ========== Step 11: Generate pre-order and send to message queue ==========
+	// Determine if user is VIP (simplified check, can be enhanced)
+	isVIP := s.checkUserVIPStatus(ctx, userID)
+	
 	orderMsg := &model.OrderMessage{
 		RequestID:  req.RequestID,
 		ActivityID: activityID,
@@ -254,13 +257,25 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		Quantity:   req.Quantity,
 		Price:      activity.Price,
 		DeductID:   deductResult.DeductID,
+		IsVIP:      isVIP,
+		IP:         req.IP,
+		DeviceID:   req.DeviceID,
 		Timestamp:  time.Now().Unix(),
+		TraceID:    req.RequestID, // Use request ID as trace ID
+	}
+
+	// Route to VIP queue or normal queue based on VIP status
+	queueTopic := "seckill_orders"
+	if isVIP {
+		queueTopic = "seckill_orders_vip"
 	}
 
 	orderData, _ := json.Marshal(orderMsg)
-	if err := s.orderQueue.Publish(ctx, "seckill_orders", orderData); err != nil {
+	if err := s.orderQueue.Publish(ctx, queueTopic, orderData); err != nil {
 		log.WithFields(map[string]interface{}{
-			"error": err.Error(),
+			"error":      err.Error(),
+			"queue":      queueTopic,
+			"is_vip":     isVIP,
 		}).Error("Failed to send order message")
 
 		// Rollback stock (TCC-Cancel)
@@ -268,6 +283,12 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		s.recordCircuitBreakerError(cbName)
 		return nil, err
 	}
+
+	log.WithFields(map[string]interface{}{
+		"request_id": req.RequestID,
+		"queue":      queueTopic,
+		"is_vip":     isVIP,
+	}).Info("Order message sent to queue")
 
 	// ========== Step 12: Record user purchase count ==========
 	// Note: Purchase count is now incremented atomically in TryDeductWithLimit
@@ -342,6 +363,14 @@ func (s *seckillService) checkUserEligibility(ctx context.Context, activityID, u
 
 	// Can add more risk control checks...
 	return true
+}
+
+// checkUserVIPStatus checks if user is VIP
+func (s *seckillService) checkUserVIPStatus(ctx context.Context, userID uint64) bool {
+	// Check VIP status from Redis
+	vipKey := fmt.Sprintf("user:vip:%d", userID)
+	exists, _ := s.redis.Exists(ctx, vipKey).Result()
+	return exists > 0
 }
 
 // getUserPurchaseCount get user purchase count
