@@ -21,6 +21,7 @@ import (
 	"seckill/internal/service/seckill"
 	"seckill/internal/utils"
 	"seckill/pkg/breaker"
+	"seckill/pkg/degrade"
 	"seckill/pkg/limiter"
 	"seckill/pkg/log"
 	"seckill/pkg/queue"
@@ -203,6 +204,9 @@ func setupRouter(redisV9Client *redisv9.Client, goodsRepo repository.GoodsReposi
 		OnStateChange: nil,
 	})
 
+	// Create degrade manager
+	degradeManager := degrade.NewDegradeManager(redisV9Client)
+
 	// Create services
 	authService := auth.NewAuthService(userRepo, jwtManager, redisV9Client)
 	seckillService := seckill.NewSeckillService(
@@ -210,6 +214,7 @@ func setupRouter(redisV9Client *redisv9.Client, goodsRepo repository.GoodsReposi
 		inventory,
 		rateLimiter,
 		circuitBreakerManager,
+		degradeManager,
 		messageQueue,
 		redisV9Client,
 	)

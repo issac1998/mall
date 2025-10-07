@@ -11,6 +11,7 @@ import (
 	"seckill/internal/model"
 	"seckill/internal/repository"
 	"seckill/pkg/breaker"
+	"seckill/pkg/degrade"
 	"seckill/pkg/limiter"
 	"seckill/pkg/log"
 	"seckill/pkg/queue"
@@ -34,6 +35,7 @@ type seckillService struct {
 	inventory      *MultiLevelInventory
 	rateLimiter    *limiter.MultiDimensionLimiter
 	circuitBreaker *breaker.Manager
+	degradeManager *degrade.DegradeManager
 	orderQueue     queue.MessageQueue
 	redis          *redis.Client
 }
@@ -44,6 +46,7 @@ func NewSeckillService(
 	inventory *MultiLevelInventory,
 	rateLimiter *limiter.MultiDimensionLimiter,
 	circuitBreaker *breaker.Manager,
+	degradeManager *degrade.DegradeManager,
 	orderQueue queue.MessageQueue,
 	redis *redis.Client,
 ) SeckillService {
@@ -52,6 +55,7 @@ func NewSeckillService(
 		inventory:      inventory,
 		rateLimiter:    rateLimiter,
 		circuitBreaker: circuitBreaker,
+		degradeManager: degradeManager,
 		orderQueue:     orderQueue,
 		redis:          redis,
 	}
@@ -122,7 +126,32 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		return s.failResult(req.RequestID, "System busy, please try again later"), nil
 	}
 
-	// ========== Step 5: Multi-dimension rate limiting ==========
+	// ========== Step 5: Degradation check ==========
+	if s.degradeManager.IsDegrade(ctx, activityID) {
+		strategy := s.degradeManager.GetStrategy(ctx, activityID)
+		log.WithFields(map[string]interface{}{
+			"activity_id": activityID,
+			"strategy":    strategy.Type,
+		}).Info("Service degraded")
+		
+		switch strategy.Type {
+		case "queue_only":
+			return &SeckillResult{
+				Success:   false,
+				RequestID: req.RequestID,
+				Message:   strategy.Message,
+				QueuePos:  strategy.EstWaitTime,
+			}, nil
+		case "lottery":
+			// Implement lottery logic based on ratio
+			// For now, return error
+			return s.failResult(req.RequestID, strategy.Message), nil
+		default: // return_error
+			return s.failResult(req.RequestID, strategy.Message), nil
+		}
+	}
+
+	// ========== Step 6: Multi-dimension rate limiting ==========
 	dimensions := map[string]string{
 		"global":   fmt.Sprintf("global:%d", activityID),
 		"user":     fmt.Sprintf("%d", userID),
@@ -138,7 +167,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		return s.failResult(req.RequestID, "Request too frequent, please try again later"), nil
 	}
 
-	// ========== Step 6: Activity validity check ==========
+	// ========== Step 7: Activity validity check ==========
 	// First try to get from Redis cache
 	var activity *model.SeckillActivity
 	configKey := fmt.Sprintf("activity:config:%d", activityID)
@@ -173,7 +202,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		return s.failResult(req.RequestID, "Activity not started or ended"), nil
 	}
 
-	// ========== Step 7: Gray control ==========
+	// ========== Step 8: Gray control ==========
 	if !s.checkGrayControl(ctx, activity, int64(userID)) {
 		log.WithFields(map[string]interface{}{
 			"user_id": userID,
@@ -181,7 +210,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		return s.failResult(req.RequestID, "Activity not available for you"), nil
 	}
 
-	// ========== Step 8: User eligibility verification (risk control) ==========
+	// ========== Step 9: User eligibility verification (risk control) ==========
 	if !s.checkUserEligibility(ctx, activityID, userID) {
 		log.WithFields(map[string]interface{}{
 			"user_id": userID,
@@ -189,7 +218,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		return s.failResult(req.RequestID, "You are not eligible for this activity"), nil
 	}
 
-	// ========== Step 9: TCC-Try phase with purchase limit check ==========
+	// ========== Step 10: TCC-Try phase with purchase limit check ==========
 	//  need to check limit and deduct in one step ,otherwise a user can bypass per user limit
 
 	deductReq := &DeductRequest{
@@ -216,7 +245,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 		return s.failResult(req.RequestID, deductResult.Message), nil
 	}
 
-	// ========== Step 10: Generate pre-order and send to message queue ==========
+	// ========== Step 11: Generate pre-order and send to message queue ==========
 	orderMsg := &model.OrderMessage{
 		RequestID:  req.RequestID,
 		ActivityID: activityID,
@@ -259,7 +288,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	resultData, _ := json.Marshal(result)
 	s.redis.SetEx(ctx, resultKey, resultData, 30*time.Minute)
 
-	// ========== Step 16: Record success metrics ==========
+	// ========== Step 17: Record success metrics ==========
 	s.recordCircuitBreakerSuccess(cbName)
 	duration := time.Since(startTime)
 
