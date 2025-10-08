@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -213,11 +214,11 @@ func (t *Tracer) RecordError(span oteltrace.Span, err error) {
 		return
 	}
 	span.RecordError(err)
-	span.SetStatus(oteltrace.StatusError, err.Error())
+	span.SetStatus(codes.Error, err.Error())
 }
 
 // SetSpanStatus 设置span状态
-func (t *Tracer) SetSpanStatus(span oteltrace.Span, code oteltrace.StatusCode, description string) {
+func (t *Tracer) SetSpanStatus(span oteltrace.Span, code codes.Code, description string) {
 	if !t.config.Enabled {
 		return
 	}
@@ -307,14 +308,14 @@ func (t *Tracer) Middleware() func(http.Handler) http.Handler {
 			// 记录响应信息
 			t.AddSpanAttributes(span,
 				semconv.HTTPStatusCodeKey.Int(rw.statusCode),
-				semconv.HTTPResponseSizeKey.Int64(rw.bytesWritten),
+				attribute.Key("http.response_size").Int64(rw.bytesWritten),
 			)
 
 			// 设置状态
 			if rw.statusCode >= 400 {
-				t.SetSpanStatus(span, oteltrace.StatusError, fmt.Sprintf("HTTP %d", rw.statusCode))
+				t.SetSpanStatus(span, codes.Error, fmt.Sprintf("HTTP %d", rw.statusCode))
 			} else {
-				t.SetSpanStatus(span, oteltrace.StatusOK, "")
+				t.SetSpanStatus(span, codes.Ok, "")
 			}
 		})
 	}

@@ -63,7 +63,7 @@ func TestRedisLock(t *testing.T) {
 
 		// Second lock should fail
 		err = lock2.Lock(ctx)
-		assert.Equal(t, ErrLockFailed, err)
+		assert.Equal(t, ErrLockNotAcquired, err)
 
 		// First lock should still be held
 		held, err := lock1.IsHeld(ctx)
@@ -102,7 +102,7 @@ func TestRedisLock(t *testing.T) {
 		duration := time.Since(start)
 
 		// Should fail but take some time due to retries
-		assert.Equal(t, ErrLockFailed, err)
+		assert.Equal(t, ErrLockNotHeld, err)
 		assert.True(t, duration >= 50*time.Millisecond, "Should have waited for retries")
 
 		// Unlock first lock

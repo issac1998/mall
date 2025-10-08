@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"seckill/internal/model"
 	"seckill/internal/repository"
 	"seckill/pkg/breaker"
@@ -15,6 +14,8 @@ import (
 	"seckill/pkg/limiter"
 	"seckill/pkg/log"
 	"seckill/pkg/queue"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // SeckillService seckill service interface
@@ -110,7 +111,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	}
 
 	// ========== Step 3: Bloom filter check (L1 cache) ==========
-	if !s.inventory.LocalCheck(activityID) {
+	if !s.inventory.LocalCheck(ctx, activityID) {
 		log.WithFields(map[string]interface{}{
 			"activity_id": activityID,
 		}).Warn("Bloom filter check failed, activity may be sold out")
@@ -133,7 +134,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 			"activity_id": activityID,
 			"strategy":    strategy.Type,
 		}).Info("Service degraded")
-		
+
 		switch strategy.Type {
 		case "queue_only":
 			return &SeckillResult{
@@ -181,7 +182,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 			activity = nil // Fallback to database
 		}
 	}
-	
+
 	// If not found in cache, query from database
 	if activity == nil {
 		var err error
@@ -240,7 +241,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	if !deductResult.Success {
 		log.WithFields(map[string]interface{}{
 			"activity_id": activityID,
-			"message":    deductResult.Message,
+			"message":     deductResult.Message,
 		}).Info("Deduction failed")
 		return s.failResult(req.RequestID, deductResult.Message), nil
 	}
@@ -248,7 +249,7 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	// ========== Step 11: Generate pre-order and send to message queue ==========
 	// Determine if user is VIP (simplified check, can be enhanced)
 	isVIP := s.checkUserVIPStatus(ctx, userID)
-	
+
 	orderMsg := &model.OrderMessage{
 		RequestID:  req.RequestID,
 		ActivityID: activityID,
@@ -273,9 +274,9 @@ func (s *seckillService) DoSeckill(ctx context.Context, req *SeckillRequest) (*S
 	orderData, _ := json.Marshal(orderMsg)
 	if err := s.orderQueue.Publish(ctx, queueTopic, orderData); err != nil {
 		log.WithFields(map[string]interface{}{
-			"error":      err.Error(),
-			"queue":      queueTopic,
-			"is_vip":     isVIP,
+			"error":  err.Error(),
+			"queue":  queueTopic,
+			"is_vip": isVIP,
 		}).Error("Failed to send order message")
 
 		// Rollback stock (TCC-Cancel)
@@ -439,7 +440,7 @@ func (s *seckillService) PrewarmActivity(ctx context.Context, activityID uint64)
 	if err != nil {
 		return err
 	}
-	
+
 	log.WithFields(map[string]interface{}{
 		"activity_id": activityID,
 		"stock":       activity.Stock,
@@ -486,4 +487,3 @@ func (s *seckillService) QuerySeckillResult(ctx context.Context, requestID strin
 }
 
 // OrderMessage has been moved to internal/model/message.go
-

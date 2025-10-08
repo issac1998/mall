@@ -9,22 +9,20 @@ import (
 )
 
 var (
-	// ErrLockFailed lock acquisition failed
-	ErrLockFailed = errors.New("failed to acquire lock")
-	// ErrLockNotHeld lock is not held
-	ErrLockNotHeld = errors.New("lock not held")
+	ErrLockNotAcquired = errors.New("lock not acquired")
+	ErrLockNotHeld     = errors.New("lock not held")
 )
 
-// RedisLock distributed lock based on Redis
+// RedisLock represents a distributed lock using Redis
 type RedisLock struct {
-	client *redis.Client
+	client redis.Cmdable
 	key    string
 	value  string
 	ttl    time.Duration
 }
 
 // NewRedisLock creates a new Redis lock
-func NewRedisLock(client *redis.Client, key, value string, ttl time.Duration) *RedisLock {
+func NewRedisLock(client redis.Cmdable, key, value string, ttl time.Duration) *RedisLock {
 	return &RedisLock{
 		client: client,
 		key:    key,
@@ -41,7 +39,7 @@ func (l *RedisLock) Lock(ctx context.Context) error {
 	}
 
 	if !success {
-		return ErrLockFailed
+		return ErrLockNotAcquired
 	}
 
 	return nil
@@ -55,7 +53,7 @@ func (l *RedisLock) TryLock(ctx context.Context, maxRetries int, retryDelay time
 			return nil
 		}
 
-		if err != ErrLockFailed {
+		if err != ErrLockNotAcquired {
 			return err
 		}
 
@@ -67,7 +65,7 @@ func (l *RedisLock) TryLock(ctx context.Context, maxRetries int, retryDelay time
 		}
 	}
 
-	return ErrLockFailed
+	return ErrLockNotAcquired
 }
 
 // Unlock releases the lock

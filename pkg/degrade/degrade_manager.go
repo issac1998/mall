@@ -11,11 +11,11 @@ import (
 
 // DegradeManager manages service degradation
 type DegradeManager struct {
-	redis *redis.Client
+	redis redis.Cmdable
 }
 
 // NewDegradeManager creates a new degrade manager
-func NewDegradeManager(redis *redis.Client) *DegradeManager {
+func NewDegradeManager(redis redis.Cmdable) *DegradeManager {
 	return &DegradeManager{
 		redis: redis,
 	}

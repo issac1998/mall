@@ -123,17 +123,17 @@ func TestActivityRepository_GetByIDWithGoods(t *testing.T) {
 		Status:  1,
 	}
 
-	// Mock activity query
-	activityRows := sqlmock.NewRows([]string{"id", "name", "goods_id", "status"}).
-		AddRow(expectedActivity.ID, expectedActivity.Name, expectedActivity.GoodsID, expectedActivity.Status)
+	// Mock activity query with preload - 注意使用正确的列名
+	activityRows := sqlmock.NewRows([]string{"id", "name", "product_id", "seckill_price", "seckill_stock", "start_time", "end_time", "limit_per_user", "status", "created_at", "updated_at"}).
+		AddRow(expectedActivity.ID, expectedActivity.Name, expectedActivity.GoodsID, 99.99, 100, time.Now(), time.Now(), 5, expectedActivity.Status, time.Now(), time.Now())
 
 	mock.ExpectQuery("SELECT \\* FROM `seckill_activities` WHERE id = \\? ORDER BY `seckill_activities`.`id` LIMIT \\?").
 		WithArgs(activityID, 1).
 		WillReturnRows(activityRows)
 
-	// Mock goods query
-	goodsRows := sqlmock.NewRows([]string{"id", "name", "price", "stock"}).
-		AddRow(1, "Test Goods", 10000, 100)
+	// Mock goods query for preload - 注意price是int64类型（分）
+	goodsRows := sqlmock.NewRows([]string{"id", "name", "price", "stock", "description", "category", "brand", "images", "status", "sales", "created_at", "updated_at"}).
+		AddRow(1, "Test Goods", 9999, 100, "Test Description", "Test Category", "Test Brand", "[]", 1, 0, time.Now(), time.Now())
 
 	mock.ExpectQuery("SELECT \\* FROM `goods` WHERE `goods`.`id` = \\?").
 		WithArgs(expectedActivity.GoodsID).

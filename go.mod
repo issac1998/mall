@@ -28,6 +28,8 @@ require (
 	github.com/alicebob/miniredis/v2 v2.35.0 // indirect
 	github.com/go-logr/logr v1.3.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/pmylund/go-bitset v0.0.0-20120712110920-d72c4b165e1a // indirect
+	github.com/pmylund/go-bloom v0.0.0-20120528014648-4ab62f5a40bf // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/otel/metric v1.21.0 // indirect
 )

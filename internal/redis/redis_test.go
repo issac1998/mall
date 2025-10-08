@@ -109,7 +109,6 @@ func TestNewLuaScript(t *testing.T) {
 	// 测试创建Lua脚本管理器
 	ls := NewLuaScript(nil)
 	assert.NotNil(t, ls)
-	assert.NotNil(t, ls.sha1)
 }
 
 func TestLuaScriptLoadScripts(t *testing.T) {
@@ -123,11 +122,11 @@ func TestLuaScriptLoadScripts(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 检查脚本是否加载
-	assert.NotEmpty(t, ls.sha1["stock_deduct"])
-	assert.NotEmpty(t, ls.sha1["stock_revert"])
-	assert.NotEmpty(t, ls.sha1["rate_limit"])
-	assert.NotEmpty(t, ls.sha1["distributed_lock"])
-	assert.NotEmpty(t, ls.sha1["release_lock"])
+	assert.NotEmpty(t, ls.stockDeductScript)
+	assert.NotEmpty(t, ls.stockRevertScript)
+	assert.NotEmpty(t, ls.rateLimitScript)
+	assert.NotEmpty(t, ls.lockScript)
+	assert.NotEmpty(t, ls.unlockScript)
 }
 
 func TestStockDeductWithoutScripts(t *testing.T) {

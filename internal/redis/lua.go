@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 // Lua脚本常量
@@ -170,50 +170,54 @@ const (
 
 // LuaScript Lua脚本管理器
 type LuaScript struct {
-	client *redis.Client
-	sha1   map[string]string
+	client redis.Cmdable
+	
+	stockDeductScript *redis.Script
+	stockRevertScript *redis.Script
+	
+	rateLimitScript *redis.Script
+	
+	lockScript   *redis.Script
+	unlockScript *redis.Script
 }
 
 // NewLuaScript 创建Lua脚本管理器
-func NewLuaScript(client *redis.Client) *LuaScript {
+func NewLuaScript(client redis.Cmdable) *LuaScript {
 	return &LuaScript{
-		client: client,
-		sha1:   make(map[string]string),
+		client:            client,
+		stockDeductScript: redis.NewScript(StockDeductScript),
+		stockRevertScript: redis.NewScript(StockRevertScript),
+		rateLimitScript:   redis.NewScript(RateLimitScript),
+		lockScript:        redis.NewScript(DistributedLockScript),
+		unlockScript:      redis.NewScript(ReleaseLockScript),
 	}
 }
 
-// LoadScripts 加载所有脚本
+// LoadScripts 预加载所有脚本
 func (ls *LuaScript) LoadScripts(ctx context.Context) error {
-	scripts := map[string]string{
-		"stock_deduct":     StockDeductScript,
-		"stock_revert":     StockRevertScript,
-		"rate_limit":       RateLimitScript,
-		"distributed_lock": DistributedLockScript,
-		"release_lock":     ReleaseLockScript,
+	scripts := []*redis.Script{
+		ls.stockDeductScript,
+		ls.stockRevertScript,
+		ls.rateLimitScript,
+		ls.lockScript,
+		ls.unlockScript,
 	}
-
-	for name, script := range scripts {
-		sha1, err := ls.client.ScriptLoad(ctx, script).Result()
-		if err != nil {
-			return fmt.Errorf("failed to load script %s: %w", name, err)
+	
+	for _, script := range scripts {
+		if err := script.Load(ctx, ls.client).Err(); err != nil {
+			return fmt.Errorf("failed to load lua script: %w", err)
 		}
-		ls.sha1[name] = sha1
 	}
-
+	
 	return nil
 }
 
 // StockDeduct 库存扣减
 func (ls *LuaScript) StockDeduct(ctx context.Context, activityID, goodsID, userID, requestID string, quantity, limitPerUser int, expireTime time.Duration) (int, string, int, error) {
-	sha1, exists := ls.sha1["stock_deduct"]
-	if !exists {
-		return -1, "script not loaded", 0, fmt.Errorf("stock_deduct script not loaded")
-	}
-
 	keys := []string{activityID, goodsID, userID, requestID}
 	args := []interface{}{quantity, limitPerUser, int(expireTime.Seconds())}
 
-	result, err := ls.client.EvalSha(ctx, sha1, keys, args...).Result()
+	result, err := ls.stockDeductScript.Run(ctx, ls.client, keys, args...).Result()
 	if err != nil {
 		return -1, "script error", 0, err
 	}
@@ -238,15 +242,10 @@ func (ls *LuaScript) StockDeduct(ctx context.Context, activityID, goodsID, userI
 
 // StockRevert 库存回滚
 func (ls *LuaScript) StockRevert(ctx context.Context, activityID, goodsID, userID, requestID string, quantity int, expireTime time.Duration) (int, string, error) {
-	sha1, exists := ls.sha1["stock_revert"]
-	if !exists {
-		return -1, "script not loaded", fmt.Errorf("stock_revert script not loaded")
-	}
-
 	keys := []string{activityID, goodsID, userID, requestID}
 	args := []interface{}{quantity, int(expireTime.Seconds())}
 
-	result, err := ls.client.EvalSha(ctx, sha1, keys, args...).Result()
+	result, err := ls.stockRevertScript.Run(ctx, ls.client, keys, args...).Result()
 	if err != nil {
 		return -1, "script error", err
 	}
@@ -264,15 +263,11 @@ func (ls *LuaScript) StockRevert(ctx context.Context, activityID, goodsID, userI
 
 // RateLimit 限流检查
 func (ls *LuaScript) RateLimit(ctx context.Context, key string, window time.Duration, limit int) (bool, int, error) {
-	sha1, exists := ls.sha1["rate_limit"]
-	if !exists {
-		return false, 0, fmt.Errorf("rate_limit script not loaded")
-	}
-
+	currentTime := time.Now().Unix()
 	keys := []string{key}
-	args := []interface{}{int(window.Seconds()), limit, time.Now().Unix()}
+	args := []interface{}{int(window.Seconds()), limit, currentTime}
 
-	result, err := ls.client.EvalSha(ctx, sha1, keys, args...).Result()
+	result, err := ls.rateLimitScript.Run(ctx, ls.client, keys, args...).Result()
 	if err != nil {
 		return false, 0, err
 	}
@@ -290,15 +285,10 @@ func (ls *LuaScript) RateLimit(ctx context.Context, key string, window time.Dura
 
 // AcquireLock 获取分布式锁
 func (ls *LuaScript) AcquireLock(ctx context.Context, key, value string, expire time.Duration) (bool, error) {
-	sha1, exists := ls.sha1["distributed_lock"]
-	if !exists {
-		return false, fmt.Errorf("distributed_lock script not loaded")
-	}
-
 	keys := []string{key}
 	args := []interface{}{value, int(expire.Milliseconds())}
 
-	result, err := ls.client.EvalSha(ctx, sha1, keys, args...).Result()
+	result, err := ls.lockScript.Run(ctx, ls.client, keys, args...).Result()
 	if err != nil {
 		return false, err
 	}
@@ -313,15 +303,10 @@ func (ls *LuaScript) AcquireLock(ctx context.Context, key, value string, expire 
 
 // ReleaseLock 释放分布式锁
 func (ls *LuaScript) ReleaseLock(ctx context.Context, key, value string) (bool, error) {
-	sha1, exists := ls.sha1["release_lock"]
-	if !exists {
-		return false, fmt.Errorf("release_lock script not loaded")
-	}
-
 	keys := []string{key}
 	args := []interface{}{value}
 
-	result, err := ls.client.EvalSha(ctx, sha1, keys, args...).Result()
+	result, err := ls.unlockScript.Run(ctx, ls.client, keys, args...).Result()
 	if err != nil {
 		return false, err
 	}
@@ -338,7 +323,7 @@ func (ls *LuaScript) ReleaseLock(ctx context.Context, key, value string) (bool, 
 var LuaScripts *LuaScript
 
 // InitLuaScripts 初始化Lua脚本
-func InitLuaScripts(client *redis.Client) error {
+func InitLuaScripts(client redis.Cmdable) error {
 	LuaScripts = NewLuaScript(client)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

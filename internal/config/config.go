@@ -65,6 +65,20 @@ type RedisConfig struct {
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
 	PoolTimeout  time.Duration `mapstructure:"pool_timeout"`
 	IdleTimeout  time.Duration `mapstructure:"idle_timeout"`
+	
+	// 集群模式配置
+	Cluster RedisClusterConfig `mapstructure:"cluster"`
+}
+
+// RedisClusterConfig represents Redis cluster configuration
+type RedisClusterConfig struct {
+	Enabled         bool     `mapstructure:"enabled"`
+	Addrs           []string `mapstructure:"addrs"`
+	Password        string   `mapstructure:"password"`
+	MaxRedirects    int      `mapstructure:"max_redirects"`
+	ReadOnly        bool     `mapstructure:"read_only"`
+	RouteByLatency  bool     `mapstructure:"route_by_latency"`
+	RouteRandomly   bool     `mapstructure:"route_randomly"`
 }
 
 // EtcdConfig represents etcd configuration
